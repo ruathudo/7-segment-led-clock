@@ -24,8 +24,10 @@ const uint8_t charMap[10] = {
 };
 
 const uint8_t CHAR_BLANK  = 0b00000000;
-const uint8_t CHAR_DEGREE = 0b01011100; // Top, UL, UR, Mid
-const uint8_t CHAR_H      = 0b01110110; // LL, UL, UR, LR, Mid 
+// const uint8_t CHAR_DEGREE = 0b01011100; // Top, UL, UR, Mid
+const uint8_t CHAR_CIRCLE_UP = 0b01011100; // Top, UL, UR, Mid
+const uint8_t CHAR_CIRCLE_DOWN = 0b01100011; // Bot, LL, LR, Mid
+// const uint8_t CHAR_H      = 0b01110110; // LL, UL, UR, LR, Mid
 
 // --- Objects ---
 Adafruit_PWMServoDriver pca1 = Adafruit_PWMServoDriver(0x41);
@@ -39,7 +41,8 @@ Preferences prefs;
 enum DisplayState {
     SHOW_TIME,
     SHOW_TEMP,
-    SHOW_HUMID
+    SHOW_HUMID,
+    SHOW_BLANK
 };
 DisplayState currentState = SHOW_TIME;
 
@@ -50,7 +53,8 @@ int effectMode = 0; // 0=Blink, 1=RGB, 2=Breathing
 // Sensor Values
 float currentTemp = 0; 
 float currentHum = 0;
-int ambientPwmMax = 500; // Calculated based on BH1750 (100 to MAX_SAFE_PWM)
+float lux = 0;
+int ambientPwmMax = 100; // Calculated based on BH1750 (10 to MAX_SAFE_PWM)
 
 struct Button {
     uint8_t pin;
@@ -135,9 +139,9 @@ void loop()
         prefs.putInt("effect", effectMode);
     }
 
-    // Read Sensors periodically (every 2 seconds)
+    // Read Sensors periodically (every 5 seconds)
     static unsigned long lastSensorRead = 0;
-    if (currentMillis - lastSensorRead > 2000) {
+    if (currentMillis - lastSensorRead > 5000) {
         lastSensorRead = currentMillis;
         
         sensors_event_t h_event, t_event;
@@ -146,12 +150,16 @@ void loop()
         currentHum = h_event.relative_humidity;
 
         if (lightSensor.hasValue()) {
-            float lux = lightSensor.getLux();
-            // Map 0-500 lux to 100-1000 max pwm
-            int pwm_c = int((lux / 500.0) * (MAX_SAFE_PWM - 100)) + 100;
+            lux = lightSensor.getLux();
+            // Map 0-10 lux (even the max value of sensor is 500 lux) to 10-1000 max pwm
+            int pwm_c = int((lux / 10.0) * (MAX_SAFE_PWM - 10)) + 10;
             if (pwm_c > MAX_SAFE_PWM) pwm_c = MAX_SAFE_PWM;
-            if (pwm_c < 100) pwm_c = 100;
+            if (pwm_c < 10) pwm_c = 10;
             ambientPwmMax = pwm_c;
+            // Serial.print("Ambient PWM Max: ");
+            // Serial.println(ambientPwmMax);
+            // Serial.print("Lux: ");
+            // Serial.println(lux);
             lightSensor.start();
         }
     }
@@ -174,7 +182,10 @@ void loop()
             syncedToday = false;
         }
 
-        if (sec >= 26 && sec <= 30) {
+        // Don't show anything from 21:00 to 6:00 and if there is no light in the room
+        if (lux < 0.5 && (hr >= 21 || hr < 6)) {
+            currentState = SHOW_BLANK;
+        } else if (sec >= 26 && sec <= 30) {
             currentState = SHOW_TEMP;
         } else if (sec >= 56 && sec <= 59) {
             currentState = SHOW_HUMID;
@@ -241,8 +252,7 @@ void updateDisplayForState(int hr, int min, int sec) {
         int h1 = hp / 10;
         int h2 = hp % 10;
         
-        if (h1 == 0) setDigit(0, CHAR_BLANK, pwm);
-        else setDigit(0, charMap[h1], pwm);
+        setDigit(0, charMap[h1], pwm);
         setDigit(1, charMap[h2], pwm);
         setDigit(2, charMap[m1], pwm);
         setDigit(3, charMap[m2], pwm);
@@ -257,19 +267,22 @@ void updateDisplayForState(int hr, int min, int sec) {
         else setDigit(0, charMap[d1], pwm);
         setDigit(1, charMap[d2], pwm);
         setDigit(2, charMap[d3], pwm);
-        setDigit(3, CHAR_DEGREE, pwm);
+        setDigit(3, CHAR_CIRCLE_UP, pwm);
     } 
     else if (currentState == SHOW_HUMID) {
         int hInt = (int)(currentHum * 10);
         int d1 = (hInt / 100) % 10;
         int d2 = (hInt / 10) % 10;
-        int d3 = hInt % 10;
+        // int d3 = hInt % 10;
 
         if (hInt < 100) setDigit(0, CHAR_BLANK, pwm);
         else setDigit(0, charMap[d1], pwm);
         setDigit(1, charMap[d2], pwm);
-        setDigit(2, charMap[d3], pwm);
-        setDigit(3, CHAR_H, pwm);
+        setDigit(2, CHAR_CIRCLE_UP, pwm);
+        setDigit(3, CHAR_CIRCLE_DOWN, pwm);
+    }
+    else if (currentState == SHOW_BLANK) {
+        for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, pwm);
     }
 }
 
@@ -282,24 +295,32 @@ void updateColon() {
     }
 
     // Scale ambient and alpha for ws2812 multiplier (out of 255)
-    float ambientScale = (float)ambientPwmMax / MAX_SAFE_PWM;
+    float ambientScale = (float)ambientPwmMax / MAX_SAFE_PWM; // ambientPwmMax max is 1000 and min is 10
     uint8_t displayBrightness = (uint8_t)(255 * alpha * ambientScale);
+
+    displayBrightness = min(displayBrightness, (uint8_t)255);
+    displayBrightness = max(displayBrightness, (uint8_t)2);
+
     FastLED.setBrightness(displayBrightness);
 
-    if (currentState != SHOW_TIME) {
-        // Environment Mode - Bottom dot on
+    // Don't show colon if in blank mode
+    if (currentState == SHOW_BLANK || currentState == SHOW_HUMID) {
         leds[0] = CRGB::Black;
-        CRGB col = CRGB::White;
-        
-        if (currentState == SHOW_TEMP) {
-            float t = currentTemp;
-            if (t > 30) col = CRGB::Red;
-            else if (t >= 25) col = CRGB::Yellow;
-            else if (t >= 20) col = CRGB::Green;
-            else col = CRGB::Blue;
-        }
+        leds[1] = CRGB::Black;
+    }
+    else if (currentState == SHOW_TEMP) {
+        // Bottom dot with color change based on temperature
+        float t = currentTemp;
+        leds[0] = CRGB::Black;
+        CRGB col = CRGB::Black;
+    
+        if (t > 30) col = CRGB::Red;
+        else if (t >= 25) col = CRGB::Orange;
+        else if (t >= 20) col = CRGB::Green;
+        else col = CRGB::Blue;
         leds[1] = col;
-    } else {
+    }
+    else {
         // Time Mode - effects
         unsigned long ms = millis();
         switch(effectMode) {
