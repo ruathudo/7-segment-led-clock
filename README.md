@@ -46,20 +46,22 @@ Power Rails:
 
 * Temperature and humidity monitoring: Display temperature and humidity with AHT30 sensor.
     * The temperature and humidity are displayed for 5 seconds each, show at the 26-30 and 56-59 of the minute.
-    * The temperature is displayed in Celsius. With the decimal point. (e.g. 25.5). The last digit is showing the Celsius symbol by using the top-right segment (square).
-    * The humidity is displayed in percentage. With the decimal point. (e.g. 65.3). The last digit is showing the humidity symbol by using letter H.
+    * The temperature is displayed in Celsius. With the decimal point. (e.g. 25.5). The last digit is showing the Celsius symbol by using the top-right segment (circle).
+    * The humidity is displayed in percentage. Without the decimal point. (e.g. 65). The 2 last digits are showing the percentage symbol by using upper circle and lower circle.
     * The decimal point is displayed via the 2nd dot (bottom) of colon.
     * The color of temperature and humidity is decimal dot is based on the level of temperature and humidity.
         * Hot > 30°C: Red
         * Warm 25°C - 30°C: Yellow
         * Normal 20°C - 25°C: Green
         * Cold < 20°C: Blue
-        * Humidity color is always white.
+        * Humidity color is off.
 
 * Auto-dimming: Adjust brightness based on ambient light with BH1750 sensor.
     * The brightness of the 7-segment display is adjusted that lower ambient light, lower the brightness.
     * The brightness is never exceed 1000 (out of 4095) PWM value to prevent the burnout.
     * Check the brightness sensor every 2 seconds.
+
+* Auto turn off the light at night from 21:00 to 06:00. If there is light on during this period, the light will be turned on.
 
 * Settings via buttons: Change display effects, and brightness with buttons.
     * The brightness is adjusted circularly in 5 steps: 0%, 25%, 50%, 75%, 100%. When the brightness is 0%, the 7-segment display is turned off. RGB colon is off.
