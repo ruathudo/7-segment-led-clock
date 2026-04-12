@@ -51,10 +51,10 @@ float alpha = 0.25;
 int effectMode = 0; // 0=Blink, 1=RGB, 2=Breathing
 
 // Sensor Values
-float currentTemp = 0; 
+float currentTemp = 0;
 float currentHum = 0;
-float lux = 0;
-int ambientPwmMax = 100; // Calculated based on BH1750 (10 to MAX_SAFE_PWM)
+int ambientPwm = 100; // Calculated based on BH1750 (10 to MAX_SAFE_PWM)
+float normalized_lux = 0; // Normalized lux (0-1) for regulating brightness with non-linear sensitivity
 
 struct Button {
     uint8_t pin;
@@ -150,16 +150,22 @@ void loop()
         currentHum = h_event.relative_humidity;
 
         if (lightSensor.hasValue()) {
-            lux = lightSensor.getLux();
-            // Map 0-10 lux (even the max value of sensor is 500 lux) to 10-1000 max pwm
-            int pwm_c = int((lux / 10.0) * (MAX_SAFE_PWM - 10)) + 10;
-            if (pwm_c > MAX_SAFE_PWM) pwm_c = MAX_SAFE_PWM;
-            if (pwm_c < 10) pwm_c = 10;
-            ambientPwmMax = pwm_c;
-            // Serial.print("Ambient PWM Max: ");
-            // Serial.println(ambientPwmMax);
-            // Serial.print("Lux: ");
-            // Serial.println(lux);
+            float lux = lightSensor.getLux();
+            // Map lux (0-500) to normalized value (0-1) with non-linear sensitivity
+            // More sensitive in 0-100 range, less sensitive in 100-500 range, cap at 1.0
+            if (lux <= 100.0) {
+                // 0-100 lux -> 0-1 normalized (high sensitivity)
+                normalized_lux = lux / 100.0;
+            } else {
+                // 100-500 lux -> 1.0 normalized (gradual, then flat)
+                normalized_lux = 1.0f;
+            }
+            // Apply alpha as a cap on MAX_SAFE_PWM
+            ambientPwm = int(normalized_lux * MAX_SAFE_PWM * alpha);
+
+            // set minimum ambientPwm to 10 to avoid display going completely off in very low light
+            ambientPwm = max(ambientPwm, 10);
+
             lightSensor.start();
         }
     }
@@ -182,8 +188,8 @@ void loop()
             syncedToday = false;
         }
 
-        // Don't show anything from 21:00 to 6:00 and if there is no light in the room
-        if (lux < 0.5 && (hr >= 21 || hr < 6)) {
+        // Don't show anything from 21:00 to 6:00 if ambient light is too low
+        if (normalized_lux < 0.01f && (hr >= 21 || hr < 6)) {
             currentState = SHOW_BLANK;
         } else if (sec >= 26 && sec <= 30) {
             currentState = SHOW_TEMP;
@@ -238,8 +244,6 @@ void setDigit(uint8_t digit, uint8_t charCode, int pwmValue) {
 }
 
 void updateDisplayForState(int hr, int min, int sec) {
-    int pwm = (int)(ambientPwmMax * alpha);
-
     if (alpha <= 0) {
         for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, 0);
         return;
@@ -252,10 +256,10 @@ void updateDisplayForState(int hr, int min, int sec) {
         int h1 = hp / 10;
         int h2 = hp % 10;
         
-        setDigit(0, charMap[h1], pwm);
-        setDigit(1, charMap[h2], pwm);
-        setDigit(2, charMap[m1], pwm);
-        setDigit(3, charMap[m2], pwm);
+        setDigit(0, charMap[h1], ambientPwm);
+        setDigit(1, charMap[h2], ambientPwm);
+        setDigit(2, charMap[m1], ambientPwm);
+        setDigit(3, charMap[m2], ambientPwm);
     } 
     else if (currentState == SHOW_TEMP) {
         int tInt = (int)(currentTemp * 10); 
@@ -263,11 +267,11 @@ void updateDisplayForState(int hr, int min, int sec) {
         int d2 = (tInt / 10) % 10;
         int d3 = tInt % 10;
 
-        if (tInt < 100) setDigit(0, CHAR_BLANK, pwm);
-        else setDigit(0, charMap[d1], pwm);
-        setDigit(1, charMap[d2], pwm);
-        setDigit(2, charMap[d3], pwm);
-        setDigit(3, CHAR_CIRCLE_UP, pwm);
+        if (tInt < 100) setDigit(0, CHAR_BLANK, ambientPwm);
+        else setDigit(0, charMap[d1], ambientPwm);
+        setDigit(1, charMap[d2], ambientPwm);
+        setDigit(2, charMap[d3], ambientPwm);
+        setDigit(3, CHAR_CIRCLE_UP, ambientPwm);
     } 
     else if (currentState == SHOW_HUMID) {
         int hInt = (int)(currentHum * 10);
@@ -275,14 +279,14 @@ void updateDisplayForState(int hr, int min, int sec) {
         int d2 = (hInt / 10) % 10;
         // int d3 = hInt % 10;
 
-        if (hInt < 100) setDigit(0, CHAR_BLANK, pwm);
-        else setDigit(0, charMap[d1], pwm);
-        setDigit(1, charMap[d2], pwm);
-        setDigit(2, CHAR_CIRCLE_UP, pwm);
-        setDigit(3, CHAR_CIRCLE_DOWN, pwm);
+        if (hInt < 100) setDigit(0, CHAR_BLANK, ambientPwm);
+        else setDigit(0, charMap[d1], ambientPwm);
+        setDigit(1, charMap[d2], ambientPwm);
+        setDigit(2, CHAR_CIRCLE_UP, ambientPwm);
+        setDigit(3, CHAR_CIRCLE_DOWN, ambientPwm);
     }
     else if (currentState == SHOW_BLANK) {
-        for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, pwm);
+        for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, ambientPwm);
     }
 }
 
@@ -295,11 +299,11 @@ void updateColon() {
     }
 
     // Scale ambient and alpha for ws2812 multiplier (out of 255)
-    float ambientScale = (float)ambientPwmMax / MAX_SAFE_PWM; // ambientPwmMax max is 1000 and min is 10
-    uint8_t displayBrightness = (uint8_t)(255 * alpha * ambientScale);
+    float ambientScale = normalized_lux * alpha;
+    uint8_t displayBrightness = (uint8_t)(255 * ambientScale);
 
     displayBrightness = min(displayBrightness, (uint8_t)255);
-    displayBrightness = max(displayBrightness, (uint8_t)2);
+    displayBrightness = max(displayBrightness, (uint8_t)5);
 
     FastLED.setBrightness(displayBrightness);
 
