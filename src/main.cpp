@@ -160,8 +160,8 @@ void loop()
                 // 100-500 lux -> 1.0 normalized (gradual, then flat)
                 normalized_lux = 1.0f;
             }
-            // Apply alpha as a cap on MAX_SAFE_PWM
-            ambientPwm = int(normalized_lux * MAX_SAFE_PWM * alpha);
+            // Calculate ambientPwm based only on light sensor (no alpha)
+            ambientPwm = int(normalized_lux * MAX_SAFE_PWM);
 
             // set minimum ambientPwm to 10 to avoid display going completely off in very low light
             ambientPwm = max(ambientPwm, 10);
@@ -249,44 +249,47 @@ void updateDisplayForState(int hr, int min, int sec) {
         return;
     }
 
+    // Apply alpha multiplier to ambientPwm for immediate brightness effect
+    int displayPwm = int(ambientPwm * alpha);
+
     if (currentState == SHOW_TIME) {
         int hp = hr;         // allow 24 format
         int m1 = min / 10;
         int m2 = min % 10;
         int h1 = hp / 10;
         int h2 = hp % 10;
-        
-        setDigit(0, charMap[h1], ambientPwm);
-        setDigit(1, charMap[h2], ambientPwm);
-        setDigit(2, charMap[m1], ambientPwm);
-        setDigit(3, charMap[m2], ambientPwm);
-    } 
+
+        setDigit(0, charMap[h1], displayPwm);
+        setDigit(1, charMap[h2], displayPwm);
+        setDigit(2, charMap[m1], displayPwm);
+        setDigit(3, charMap[m2], displayPwm);
+    }
     else if (currentState == SHOW_TEMP) {
-        int tInt = (int)(currentTemp * 10); 
+        int tInt = (int)(currentTemp * 10);
         int d1 = (tInt / 100) % 10;
         int d2 = (tInt / 10) % 10;
         int d3 = tInt % 10;
 
-        if (tInt < 100) setDigit(0, CHAR_BLANK, ambientPwm);
-        else setDigit(0, charMap[d1], ambientPwm);
-        setDigit(1, charMap[d2], ambientPwm);
-        setDigit(2, charMap[d3], ambientPwm);
-        setDigit(3, CHAR_CIRCLE_UP, ambientPwm);
-    } 
+        if (tInt < 100) setDigit(0, CHAR_BLANK, displayPwm);
+        else setDigit(0, charMap[d1], displayPwm);
+        setDigit(1, charMap[d2], displayPwm);
+        setDigit(2, charMap[d3], displayPwm);
+        setDigit(3, CHAR_CIRCLE_UP, displayPwm);
+    }
     else if (currentState == SHOW_HUMID) {
         int hInt = (int)(currentHum * 10);
         int d1 = (hInt / 100) % 10;
         int d2 = (hInt / 10) % 10;
         // int d3 = hInt % 10;
 
-        if (hInt < 100) setDigit(0, CHAR_BLANK, ambientPwm);
-        else setDigit(0, charMap[d1], ambientPwm);
-        setDigit(1, charMap[d2], ambientPwm);
-        setDigit(2, CHAR_CIRCLE_UP, ambientPwm);
-        setDigit(3, CHAR_CIRCLE_DOWN, ambientPwm);
+        if (hInt < 100) setDigit(0, CHAR_BLANK, displayPwm);
+        else setDigit(0, charMap[d1], displayPwm);
+        setDigit(1, charMap[d2], displayPwm);
+        setDigit(2, CHAR_CIRCLE_UP, displayPwm);
+        setDigit(3, CHAR_CIRCLE_DOWN, displayPwm);
     }
     else if (currentState == SHOW_BLANK) {
-        for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, ambientPwm);
+        for (int i=0; i<4; i++) setDigit(i, CHAR_BLANK, displayPwm);
     }
 }
 
