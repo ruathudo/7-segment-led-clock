@@ -188,8 +188,8 @@ void loop()
             syncedToday = false;
         }
 
-        // Don't show anything from 21:00 to 6:00 if ambient light is too low
-        if (normalized_lux < 0.01f && (hr >= 21 || hr < 6)) {
+        // Don't show anything from 22:00 to 5:00 if ambient light is too low
+        if (normalized_lux < 0.001f && (hr >= 22 || hr < 5)) {
             currentState = SHOW_BLANK;
         } else if (sec >= 26 && sec <= 30) {
             currentState = SHOW_TEMP;
